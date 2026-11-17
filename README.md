@@ -78,6 +78,8 @@ return { "Quoteme/guarded", branch = "nvim" }
 ```
 
 The `nvim` branch is built by `.github/workflows/neovim-bundle.yml`: it contains
-the plugin together with the server binaries (`bin/guarded-Linux-x86_64`,
-`bin/guarded-Darwin-arm64`), so nothing is downloaded at runtime. A `guarded`
-executable on `$PATH` takes precedence over the bundled one.
+the plugin together with xz-compressed server binaries
+(`bin/guarded-Linux-x86_64.xz`, `bin/guarded-Darwin-arm64.xz`). lazy.nvim runs
+the plugin's `build.lua` on install and update, which unpacks the binary for
+the current platform, so nothing is downloaded at runtime. `xz` must be
+installed. A `guarded` executable on `$PATH` takes precedence over the bundled one.

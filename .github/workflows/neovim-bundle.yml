@@ -30,13 +30,17 @@ jobs:
           path: .lake
           key: lake-${{ matrix.os }}-${{ hashFiles('lean-toolchain', 'lake-manifest.json') }}
 
-      # strip debug symbols: 103 MB -> 72 MB, below GitHub's 100 MB file limit
-      - run: lake build && strip -o ${{ matrix.asset }} .lake/build/bin/guarded
+      # strip (103 MB -> 72 MB) and compress (-> ~16 MB); build.lua unpacks it
+      - run: |
+          lake build
+          strip -o ${{ matrix.asset }} .lake/build/bin/guarded
+          chmod +x ${{ matrix.asset }}
+          xz -9 ${{ matrix.asset }}
 
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.asset }}
-          path: ${{ matrix.asset }}
+          path: ${{ matrix.asset }}.xz
 
   bundle:
     needs: build
@@ -49,7 +53,7 @@ jobs:
           merge-multiple: true
           path: editor-integration/neovim/bin
 
-      # the `nvim` branch is the Neovim plugin with the binaries in bin/;
+      # the `nvim` branch is the Neovim plugin with the compressed binaries in bin/;
       # force-pushed as a single commit so old binaries do not pile up
       - name: Publish the nvim branch
         working-directory: editor-integration/neovim
