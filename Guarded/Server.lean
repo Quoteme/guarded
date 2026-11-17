@@ -35,7 +35,7 @@ def toSeverity : Severity → DiagnosticSeverity
   | .warning => .warning
   | .info => .information
 
-def toDiagnostic (d : Diag) : Diagnostic :=
+def toDiagnostic (d : Guarded.Diagnostic) : Lapis.Protocol.Types.Diagnostic :=
   { range := toRange d.span
     severity := some (toSeverity d.severity)
     source := some "guarded"

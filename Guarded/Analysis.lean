@@ -1,6 +1,6 @@
 import Guarded.Parser
-import Guarded.Elab
-import Guarded.Eval
+import Guarded.Elaboration
+import Guarded.Evaluation
 
 /-!
 # Document analysis
@@ -23,15 +23,15 @@ structure Diagnostic where
   deriving Inhabited, Repr
 
 structure Analysis where
-  module : TModule
+  module : TypedModule
   diags : Array Diagnostic
   deriving Inhabited
 
 /-- `| 5 -> …` lines, latest stage first. -/
-def EvalReport.render (r : EvalReport) : String :=
+def EvaluationReport.render (r : EvaluationReport) : String :=
   "\n".intercalate (r.stages.map fun (k, v) => s!"| {k} -> {v}")
 
-def evalDiags (m : TModule) : TDecl → List Diagnostic
+def evalDiags (m : TypedModule) : TypedDeclaration → List Diagnostic
   | .eval s depth e =>
     if !e.errors.isEmpty then [] else
     match evalStages m e depth with
@@ -47,7 +47,7 @@ def analyze (src : String) : Analysis :=
 
 /-! ## Hover -/
 
-def cardinalities (env : TypeEnv) (t : Ty) (stages : Nat := 4) : String :=
+def cardinalities (env : TypeEnvironment) (t : GuardedType) (stages : Nat := 4) : String :=
   if t.isError then "" else
   let name := match t with
     | .named n => n
@@ -55,7 +55,7 @@ def cardinalities (env : TypeEnv) (t : Ty) (stages : Nat := 4) : String :=
   let cs := (List.range stages).map fun n => s!"|{name}({n})| = {env.card t n}"
   "\n\n" ++ ", ".intercalate cs ++ ", …"
 
-def describeExpr (e : TExpr) : String :=
+def describeExpr (e : TypedExpression) : String :=
   match e.ty with
   | .error info => s!"⚠ {info.msg}"
   | t =>
@@ -80,7 +80,7 @@ def Analysis.hover? (a : Analysis) (p : Pos) : Option (Span × String) :=
       else exprHover d
     | d => exprHover d
 where
-  exprHover (d : TDecl) : Option (Span × String) :=
+  exprHover (d : TypedDeclaration) : Option (Span × String) :=
     d.exprs.findSome? fun e => (e.nodeAt? p).map fun n => (n.span, describeExpr n)
 
 end Guarded

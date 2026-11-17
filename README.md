@@ -60,14 +60,14 @@ the sizes `|X(0)|, |X(1)|, …`.
 | `Guarded/Lexer.lean`    | tokenization (total)                                                  |
 | `Guarded/Parser.lean`   | parsing (total; errors become `missing` nodes, layout-based recovery) |
 | `Guarded/Syntax.lean`   | untyped AST                                                           |
-| `Guarded/Types.lean`    | types, with `Ty.error` carrying diagnostics                           |
+| `Guarded/Types.lean`    | types, with `GuardedType.error` carrying diagnostics                           |
 | `Guarded/Typed.lean`    | typed AST; every node stores its type                                 |
-| `Guarded/Elab.lean`     | bidirectional type checking                                           |
-| `Guarded/Eval.lean`     | stagewise evaluation by iteration                                     |
+| `Guarded/Elaboration.lean` | bidirectional type checking                                           |
+| `Guarded/Evaluation.lean`  | stagewise evaluation by iteration                                     |
 | `Guarded/Analysis.lean` | pipeline, diagnostics, hover                                          |
 | `Guarded/Server.lean`   | lapis glue                                                            |
 
-Neither parsing nor type checking can fail. Every error is a `Ty.error`
+Neither parsing nor type checking can fail. Every error is a `GuardedType.error`
 stored in the typed AST, and diagnostics are read off the tree.
 
 ## Neovim (LazyVim)

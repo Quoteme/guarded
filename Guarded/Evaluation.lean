@@ -20,24 +20,24 @@ namespace Guarded
 
 /-- An element of `X(n)` for some type `X` and stage `n`. Elements of
 `(later X)(n+1)` are elements of `X(n)`, so `later` needs no constructor. -/
-inductive Val where
+inductive Value where
   | unit
-  | inj (label : String) (arg : Val)
-  | record (fields : List (String × Val))
+  | inj (label : String) (arg : Value)
+  | record (fields : List (String × Value))
   deriving Inhabited
 
-namespace Val
+namespace Value
 
-partial def beq : Val → Val → Bool
+partial def beq : Value → Value → Bool
   | .unit, .unit => true
   | .inj l a, .inj m b => l == m && a.beq b
   | .record xs, .record ys =>
     xs.length == ys.length && (xs.zip ys).all fun (x, y) => x.1 == y.1 && x.2.beq y.2
   | _, _ => false
 
-instance : BEq Val := ⟨beq⟩
+instance : BEq Value := ⟨beq⟩
 
-partial def render : Val → String
+partial def render : Value → String
   | .unit => "*"
   | .inj l .unit => l
   | .inj l v@(.inj _ (.unit)) => s!"{l} {v.render}"
@@ -45,30 +45,30 @@ partial def render : Val → String
   | .inj l v => s!"{l} ({v.render})"
   | .record fs => "(" ++ ", ".intercalate (fs.map fun (l, v) => s!"{l} := {v.render}") ++ ")"
 
-instance : ToString Val := ⟨render⟩
+instance : ToString Value := ⟨render⟩
 
-end Val
+end Value
 
-namespace Eval
+namespace Evaluation
 
-structure Ctx where
-  types : TypeEnv
-  globals : Std.HashMap String TGlobal
+structure Context where
+  types : TypeEnvironment
+  globals : Std.HashMap String TypedGlobal
   /-- local variables with their types and values at the current stage -/
-  locals : List (String × Ty × Val) := []
+  locals : List (String × GuardedType × Value) := []
   stage : Nat
 
-abbrev Cache := Std.HashMap (String × Nat) Val
+abbrev Cache := Std.HashMap (String × Nat) Value
 
-abbrev EvalM := ReaderT Ctx (StateT Cache (Except String))
+abbrev EvaluationM := ReaderT Context (StateT Cache (Except String))
 
-def liftE {α} (x : Except String α) : EvalM α :=
+def liftE {α} (x : Except String α) : EvaluationM α :=
   match x with
   | .ok a => pure a
   | .error e => throw e
 
 /-- Field `l` of a value of type `t` at stage `n`, through `later`s. -/
-partial def projVal (env : TypeEnv) (t : Ty) (n : Nat) (v : Val) (l : String) : Except String Val :=
+partial def projVal (env : TypeEnvironment) (t : GuardedType) (n : Nat) (v : Value) (l : String) : Except String Value :=
   match env.whnf t, v with
   | .later a, _ => if n == 0 then pure .unit else projVal env a (n - 1) v l
   | .prod _, .record fs => match fs.lookup l with
@@ -78,7 +78,7 @@ partial def projVal (env : TypeEnv) (t : Ty) (n : Nat) (v : Val) (l : String) : 
 
 mutual
 
-partial def eval : TExpr → EvalM Val
+partial def eval : TypedExpression → EvaluationM Value
   | .unit .. => pure .unit
   | .local _ x _ => do
     match (← read).locals.lookup x with
@@ -102,12 +102,12 @@ partial def eval : TExpr → EvalM Val
   | .error .. => throw "cannot evaluate an ill-typed term"
 
 /-- Stage `n` of the global element `name`, memoised. -/
-partial def globalAt (name : String) (n : Nat) : EvalM Val := do
+partial def globalAt (name : String) (n : Nat) : EvaluationM Value := do
   if let some v := (← get).get? (name, n) then return v
   let ctx ← read
   let some g := ctx.globals.get? name | throw s!"unknown global `{name}`"
   if g.ty.isError then throw s!"`{name}` is ill-typed"
-  let atStage {α} (k : Nat) (locals : List (String × Ty × Val)) (m : EvalM α) : EvalM α :=
+  let atStage {α} (k : Nat) (locals : List (String × GuardedType × Value)) (m : EvaluationM α) : EvaluationM α :=
     withReader (fun c => { c with stage := k, locals }) m
   let v ← match g.body, n with
     | .expr e, _ => atStage n [] (eval e)
@@ -122,18 +122,18 @@ partial def globalAt (name : String) (n : Nat) : EvalM Val := do
 
 end
 
-end Eval
+end Evaluation
 
 /-- Result of `#eval n e`. -/
-structure EvalReport where
+structure EvaluationReport where
   /-- `(k, eₖ)` for `k = n, n-1, …, 0` -/
-  stages : List (Nat × Val)
+  stages : List (Nat × Value)
 
-open Eval in
+open Evaluation in
 /-- Evaluate a closed term at stages `0 … depth`. -/
-def evalStages (m : TModule) (e : TExpr) (depth : Nat) : Except String EvalReport := do
+def evalStages (m : TypedModule) (e : TypedExpression) (depth : Nat) : Except String EvaluationReport := do
   let globals := m.globals
-  let run (k : Nat) : StateT Cache (Except String) Val :=
+  let run (k : Nat) : StateT Cache (Except String) Value :=
     (eval e).run { types := m.types, globals, stage := k }
   let (vals, _) ← (List.range (depth + 1)).mapM run |>.run {}
   return { stages := (List.range (depth + 1)).zip vals |>.reverse }

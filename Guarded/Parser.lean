@@ -84,7 +84,7 @@ def isIdentKind : TokenKind → Bool
   | .ident _ => true
   | _        => false
 
-def ident? : ParserM (Option Ident) := do
+def ident? : ParserM (Option Identifier) := do
   match (← peek).kind with
   | .ident n => let t ← advance; return some ⟨n, t.span⟩
   | _        => return none
@@ -112,7 +112,7 @@ def recover (what : String) : ParserM (Span × String) := do
 mutual
 
 /-- Parse a type. -/
-partial def parseType : ParserM TypeSyn := do
+partial def parseType : ParserM TypeSyntax := do
   let first ← parseProd
   if (← peekKind) != .plus then return first
   let mut parts := #[first]
@@ -120,7 +120,7 @@ partial def parseType : ParserM TypeSyn := do
     parts := parts.push (← parseProd)
   return .sum (first.span.merge parts.back!.span) parts
 
-partial def parseProd : ParserM TypeSyn := do
+partial def parseProd : ParserM TypeSyntax := do
   let first ← parseTypeFactor
   let isTimes (k : TokenKind) := k == .times || k == .star
   if !isTimes (← peekKind) then return first
@@ -129,7 +129,7 @@ partial def parseProd : ParserM TypeSyn := do
     parts := parts.push (← parseTypeFactor)
   return .prod (first.span.merge parts.back!.span) parts
 
-partial def parseTypeFactor : ParserM TypeSyn := do
+partial def parseTypeFactor : ParserM TypeSyntax := do
   let t ← peek
   match t.kind with
   | .number 1 => let _ ← advance; return .one t.span
@@ -158,7 +158,7 @@ partial def parseTypeFactor : ParserM TypeSyn := do
 
 /-- Expect `)` and build the node; a missing `)` becomes an error node
 wrapping nothing. -/
-partial def closeParen (start : Span) (mk : Span → TypeSyn) : ParserM TypeSyn := do
+partial def closeParen (start : Span) (mk : Span → TypeSyntax) : ParserM TypeSyntax := do
   if (← eatKind .rparen).isSome then
     return mk (← spanFrom start)
   let (span, msg) ← unexpected "`)`"
@@ -174,7 +174,7 @@ def isAtomStart : TokenKind → Bool
 
 mutual
 
-partial def parseExpr : ParserM ExprSyn := do
+partial def parseExpr : ParserM ExpressionSyntax := do
   let t ← peek
   match t.kind with
   | .kwMatch =>
@@ -199,7 +199,7 @@ partial def parseExpr : ParserM ExprSyn := do
     parsePostfix
   | _ => parsePostfix
 
-partial def parseAlt : ParserM (Ident × Option Ident × ExprSyn) := do
+partial def parseAlt : ParserM (Identifier × Option Identifier × ExpressionSyntax) := do
   let start ← peek
   let some label ← ident? | do
     let (span, msg) ← recover "a constructor name"
@@ -210,7 +210,7 @@ partial def parseAlt : ParserM (Ident × Option Ident × ExprSyn) := do
     return (label, binder, .missing (start.span.merge span) msg)
   return (label, binder, ← parseExpr)
 
-partial def parsePostfix : ParserM ExprSyn := do
+partial def parsePostfix : ParserM ExpressionSyntax := do
   let mut e ← parseAtom
   while (← peekKind) == .dot do
     let _ ← advance
@@ -221,7 +221,7 @@ partial def parsePostfix : ParserM ExprSyn := do
       e := .missing (e.span.merge span) msg
   return e
 
-partial def parseAtom : ParserM ExprSyn := do
+partial def parseAtom : ParserM ExpressionSyntax := do
   let t ← peek
   match t.kind with
   | .star => let _ ← advance; return .unit t.span
@@ -243,7 +243,7 @@ partial def parseAtom : ParserM ExprSyn := do
     return .missing span msg
 
 /-- Fields of a record literal, after the opening `(`. -/
-partial def parseRecord (start : Span) : ParserM ExprSyn := do
+partial def parseRecord (start : Span) : ParserM ExpressionSyntax := do
   let mut fields := #[]
   repeat
     let some label ← ident? | do
@@ -263,7 +263,7 @@ end
 
 /-! ## Declarations -/
 
-def parsePat : ParserM PatSyn := do
+def parsePat : ParserM PatternSyntax := do
   let t ← peek
   match t.kind with
   | .number 1 | .star => let _ ← advance; return .one t.span
@@ -272,7 +272,7 @@ def parsePat : ParserM PatSyn := do
     let (span, msg) ← recover "`1` or a variable"
     return .missing span msg
 
-def parseBranch : ParserM BranchSyn := do
+def parseBranch : ParserM BranchSyntax := do
   let bar ← advance
   let pat ← parsePat
   if (← eatKind .arrow).isNone then
@@ -281,7 +281,7 @@ def parseBranch : ParserM BranchSyn := do
   let body ← parseExpr
   return ⟨bar.span.merge body.span, pat, body⟩
 
-def parseBody : ParserM BodySyn := do
+def parseBody : ParserM BodySyntax := do
   let start ← peek
   if start.kind != .bar then return .expr (← parseExpr)
   let mut bs := #[]
@@ -289,7 +289,7 @@ def parseBody : ParserM BodySyn := do
     bs := bs.push (← parseBranch)
   return .branches (← spanFrom start.span) bs
 
-def parseDecl : ParserM DeclSyn := do
+def parseDecl : ParserM DeclarationSyntax := do
   let t ← peek
   match t.kind with
   | .cmdEval =>
@@ -305,14 +305,14 @@ def parseDecl : ParserM DeclSyn := do
     return .missing t.span s!"unknown command `#{c}`; the only command is `#eval`"
   | .ident n =>
     let _ ← advance
-    let name : Ident := ⟨n, t.span⟩
+    let name : Identifier := ⟨n, t.span⟩
     if (← eatKind .assign).isSome then
       return .type name (← parseType)
     if (← eatKind .colon).isSome then
       let first ← parseType
       let sig ← if (← eatKind .arrow).isSome then
-          pure { dom := some first, cod := ← parseType : SigSyn }
-        else pure { dom := none, cod := first : SigSyn }
+          pure { dom := some first, cod := ← parseType : SignatureSyntax }
+        else pure { dom := none, cod := first : SignatureSyntax }
       if (← eatKind .assign).isNone then
         let (span, msg) ← unexpected "`:=`"
         return .missing (t.span.merge span) msg
@@ -324,7 +324,7 @@ def parseDecl : ParserM DeclSyn := do
     return .missing span msg
 
 /-- Parse one layout chunk; tokens left over become an extra error. -/
-def parseChunk : ParserM (Array DeclSyn) := do
+def parseChunk : ParserM (Array DeclarationSyntax) := do
   let d ← parseDecl
   let rest ← peek
   let s ← get
@@ -355,9 +355,9 @@ end Parser
 
 open Parser in
 /-- Parse a whole `.grd` file. Never fails. -/
-def parseModule (src : String) : Module :=
+def parseModule (src : String) : ModuleSyntax :=
   (chunks (tokenize src)).flatMap fun toks =>
     let last := toks.back!.span
-    (parseChunk.run' { toks, eofSpan := ⟨last.stop, last.stop⟩ } : Array DeclSyn)
+    (parseChunk.run' { toks, eofSpan := ⟨last.stop, last.stop⟩ } : Array DeclarationSyntax)
 
 end Guarded

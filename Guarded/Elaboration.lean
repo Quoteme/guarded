@@ -3,17 +3,17 @@ import Guarded.Typed
 
 namespace Guarded
 
-namespace Elab
+namespace Elaboration
 
-def errTy (span : Span) (msg : String) : Ty := .error ⟨span, msg⟩
+def errTy (span : Span) (msg : String) : GuardedType := .error ⟨span, msg⟩
 
-def errExpr (span : Span) (msg : String) (children : List TExpr := []) : TExpr :=
+def errExpr (span : Span) (msg : String) (children : List TypedExpression := []) : TypedExpression :=
   .error span children (errTy span msg)
 
 /-! ## Types -/
 
 /-- Elaborate a type expression. `declared` tells which names are types. -/
-partial def elabType (declared : String → Bool) : TypeSyn → Ty
+partial def elabType (declared : String → Bool) : TypeSyntax → GuardedType
   | .one _ => .one
   | .zero _ => .zero
   | .name id =>
@@ -26,7 +26,7 @@ partial def elabType (declared : String → Bool) : TypeSyn → Ty
   | .missing s m => errTy s m
 where
   /-- Components of sums and products must be labelled, with distinct labels. -/
-  components (kind : String) (parts : Array TypeSyn) : List (String × Ty) :=
+  components (kind : String) (parts : Array TypeSyntax) : List (String × GuardedType) :=
     parts.toList.foldl (init := []) fun acc part =>
       match part with
       | .labelled _ l b =>
@@ -38,8 +38,8 @@ where
 
 /-- Replace every definition that reaches itself without passing through a
 `later` by an error: such equations have no unique solution. -/
-def checkGuarded (env : TypeEnv) (spans : Std.HashMap String Span) : TypeEnv := Id.run do
-  let edges (n : String) : List String := (env.get? n).map Ty.unguardedNames |>.getD []
+def checkGuarded (env : TypeEnvironment) (spans : Std.HashMap String Span) : TypeEnvironment := Id.run do
+  let edges (n : String) : List String := (env.get? n).map GuardedType.unguardedNames |>.getD []
   let mut out := env
   for (name, _) in env.toList do
     -- depth-first search for `name` along unguarded edges
@@ -63,24 +63,24 @@ def checkGuarded (env : TypeEnv) (spans : Std.HashMap String Span) : TypeEnv := 
 
 /-! ## Expressions -/
 
-structure Ctx where
-  types : TypeEnv
+structure Context where
+  types : TypeEnvironment
   /-- globals declared so far, with their types -/
-  globals : Std.HashMap String Ty := {}
-  locals : List (String × Ty) := []
+  globals : Std.HashMap String GuardedType := {}
+  locals : List (String × GuardedType) := []
   /-- checking the stage-0 branch `| 1 -> …`, where `later A ≅ 1` -/
   stageZero : Bool := false
   /-- the global being defined -/
   current : Option String := none
 
-abbrev ElabM := ReaderM Ctx
+abbrev ElaborationM := ReaderM Context
 
-def whnf (t : Ty) : ElabM Ty := return (← read).types.whnf t
+def whnf (t : GuardedType) : ElaborationM GuardedType := return (← read).types.whnf t
 
-def defEq (a b : Ty) : ElabM Bool := return (← read).types.defEq a b
+def defEq (a b : GuardedType) : ElaborationM Bool := return (← read).types.defEq a b
 
 /-- Type definitions that are sums with constructor `l`, and its payload. -/
-def ctorsNamed (l : String) : ElabM (List (String × Ty)) := do
+def ctorsNamed (l : String) : ElaborationM (List (String × GuardedType)) := do
   let env := (← read).types
   return env.toList.filterMap fun (n, t) =>
     match env.whnf t with
@@ -89,33 +89,33 @@ def ctorsNamed (l : String) : ElabM (List (String × Ty)) := do
 
 /-- Type of the field `l` of `t`, looking through `later`
 (`later` preserves products: `(later (A × B)).l = later A`). -/
-partial def projTy (t : Ty) (l : String) : ElabM (Option Ty) := do
+partial def projTy (t : GuardedType) (l : String) : ElaborationM (Option GuardedType) := do
   match ← whnf t with
   | .later a => return (← projTy a l).map .later
   | .prod fs => return fs.lookup l
   | .error e => return some (.error e)
   | _ => return none
 
-def mismatchMsg (expected actual : Ty) : ElabM String :=
+def mismatchMsg (expected actual : GuardedType) : ElaborationM String :=
   return s!"type mismatch: expected `{expected}`, got `{actual}`"
 
 /-- Strip leading `later`s: `later^k t ↦ (k, t)`. -/
-partial def peelLater (t : Ty) (k : Nat := 0) : ElabM (Nat × Ty) := do
+partial def peelLater (t : GuardedType) (k : Nat := 0) : ElaborationM (Nat × GuardedType) := do
   match ← whnf t with
   | .later a => peelLater a (k + 1)
   | t => return (k, t)
 
-def laterN : Nat → Ty → Ty
+def laterN : Nat → GuardedType → GuardedType
   | 0, t => t
   | k + 1, t => .later (laterN k t)
 
-def stageZeroHint (expected : Ty) : String :=
+def stageZeroHint (expected : GuardedType) : String :=
   s!"`*` has type `1`, but `{expected}` is expected. `later A` is the terminal \
     object only at stage 0, i.e. in a `| 1 -> …` branch"
 
 mutual
 
-partial def infer : ExprSyn → ElabM TExpr
+partial def infer : ExpressionSyntax → ElaborationM TypedExpression
   | .ident id => do
     let ctx ← read
     if let some t := ctx.locals.lookup id.name then return .local id.span id.name t
@@ -133,7 +133,7 @@ partial def infer : ExprSyn → ElabM TExpr
       let te ← infer e
       if out.any (·.1 == l.name) then bad := bad ++ [errExpr l.span s!"duplicate field `{l.name}`" [te]]
       else out := out ++ [(l.name, te)]
-    let r := TExpr.record s out (.prod (out.map fun (l, e) => (l, e.ty)))
+    let r := TypedExpression.record s out (.prod (out.map fun (l, e) => (l, e.ty)))
     return if bad.isEmpty then r else errExpr s "record has duplicate fields" (r :: bad)
   | .proj s b l => do
     let b ← infer b
@@ -144,7 +144,7 @@ partial def infer : ExprSyn → ElabM TExpr
   | .missing s m => return errExpr s m
 
 /-- A constructor used without an expected type: find its sum type. -/
-partial def inferCtor (s : Span) (l : Ident) (arg : Option ExprSyn) : ElabM TExpr := do
+partial def inferCtor (s : Span) (l : Identifier) (arg : Option ExpressionSyntax) : ElaborationM TypedExpression := do
   match ← ctorsNamed l.name with
   | [(tyName, payload)] => mkInj s l arg payload (.named tyName)
   | [] =>
@@ -158,7 +158,7 @@ partial def inferCtor (s : Span) (l : Ident) (arg : Option ExprSyn) : ElabM TExp
       use it where the expected type is known" children
 
 /-- Build `l arg : ty` where `l` has payload type `payload`. -/
-partial def mkInj (s : Span) (l : Ident) (arg : Option ExprSyn) (payload ty : Ty) : ElabM TExpr := do
+partial def mkInj (s : Span) (l : Identifier) (arg : Option ExpressionSyntax) (payload ty : GuardedType) : ElaborationM TypedExpression := do
   match arg with
   | some a => return .inj s l.name (← check a payload) ty
   | none =>
@@ -166,7 +166,7 @@ partial def mkInj (s : Span) (l : Ident) (arg : Option ExprSyn) (payload ty : Ty
     | .one | .error _ => return .inj s l.name (.unit s .one) ty
     | _ => return errExpr s s!"constructor `{l.name}` expects an argument of type `{payload}`"
 
-partial def check (e : ExprSyn) (expected : Ty) : ElabM TExpr := do
+partial def check (e : ExpressionSyntax) (expected : GuardedType) : ElaborationM TypedExpression := do
   let ctx ← read
   let exp ← whnf expected
   if exp.isError then return ← infer e
@@ -190,13 +190,13 @@ partial def check (e : ExprSyn) (expected : Ty) : ElabM TExpr := do
   | .match s scrut alts, _ => elabMatch s scrut alts (some expected)
   | _, _ => inferAndCompare e expected
 
-partial def inferAndCompare (e : ExprSyn) (expected : Ty) : ElabM TExpr := do
+partial def inferAndCompare (e : ExpressionSyntax) (expected : GuardedType) : ElaborationM TypedExpression := do
   let t ← infer e
   if ← defEq t.ty expected then return t
   return errExpr t.span (← mismatchMsg expected t.ty) [t]
 
-partial def checkRecord (s : Span) (fields : Array (Ident × ExprSyn))
-    (fs : List (String × Ty)) (expected : Ty) : ElabM TExpr := do
+partial def checkRecord (s : Span) (fields : Array (Identifier × ExpressionSyntax))
+    (fs : List (String × GuardedType)) (expected : GuardedType) : ElaborationM TypedExpression := do
   let mut out := []
   let mut bad := []
   for (l, e) in fields do
@@ -207,14 +207,14 @@ partial def checkRecord (s : Span) (fields : Array (Ident × ExprSyn))
       else out := out ++ [(l.name, ← check e t)]
     | none => bad := bad ++ [errExpr l.span s!"`{expected}` has no field `{l.name}`" [← infer e]]
   let missing := fs.filter fun f => !out.any (·.1 == f.1)
-  let r := TExpr.record s out expected
+  let r := TypedExpression.record s out expected
   if !missing.isEmpty then
     let names := ", ".intercalate (missing.map fun f => s!"`{f.1}`")
     bad := bad ++ [errExpr s s!"missing field(s) {names} of `{expected}`"]
   return if bad.isEmpty then r else .error s (r :: bad) (bad.head!.ty)
 
-partial def elabMatch (s : Span) (scrut : ExprSyn) (alts : Array (Ident × Option Ident × ExprSyn))
-    (expected : Option Ty) : ElabM TExpr := do
+partial def elabMatch (s : Span) (scrut : ExpressionSyntax) (alts : Array (Identifier × Option Identifier × ExpressionSyntax))
+    (expected : Option GuardedType) : ElaborationM TypedExpression := do
   let scrut ← infer scrut
   let (depth, inner) ← peelLater scrut.ty
   let cases := match inner with
@@ -239,7 +239,7 @@ partial def elabMatch (s : Span) (scrut : ExprSyn) (alts : Array (Ident × Optio
       bad := bad ++ [errExpr l.span s!"duplicate alternative `{l.name}`"]
     out := out ++ [(l.name, bind, body)]
   let ty := resTy.getD .one
-  let r := TExpr.match s scrut out ty
+  let r := TypedExpression.match s scrut out ty
   match cases with
   | none =>
     if scrut.ty.isError then return r
@@ -257,15 +257,15 @@ end
 
 def maxEvalDepth : Nat := 64
 
-structure ModState where
-  globals : Std.HashMap String Ty := {}
-  decls : Array TDecl := #[]
+structure ModuleState where
+  globals : Std.HashMap String GuardedType := {}
+  decls : Array TypedDeclaration := #[]
 
 /-- Elaborate the body of a global with signature `dom? → cod`. -/
-def elabGlobalBody (ctx : Ctx) (name : Ident) (dom? : Option Ty) (cod : Ty) (body : BodySyn) :
-    Ty × TBody :=
+def elabGlobalBody (ctx : Context) (name : Identifier) (dom? : Option GuardedType) (cod : GuardedType) (body : BodySyntax) :
+    GuardedType × TypedBody :=
   let ctx := { ctx with current := some name.name }
-  let run {α} (m : ElabM α) (c : Ctx := ctx) : α := m.run c
+  let run {α} (m : ElaborationM α) (c : Context := ctx) : α := m.run c
   match dom?, body with
   | none, .expr e => (cod, .expr (run (check e cod)))
   | none, .branches s bs =>
@@ -286,7 +286,7 @@ def elabGlobalBody (ctx : Ctx) (name : Ident) (dom? : Option Ty) (cod : Ty) (bod
     let step := steps[0]?.map fun (x, b) =>
       (x, run (check b.body cod) { ctx with locals := [(x.name, .later cod)] })
     -- everything that is not exactly one zero branch and one step branch
-    let mut extra : List TExpr := []
+    let mut extra : List TypedExpression := []
     for b in bs do
       match b.pat with
       | .missing ps m => extra := extra ++ [errExpr ps m [run (infer b.body)]]
@@ -305,11 +305,11 @@ def elabGlobalBody (ctx : Ctx) (name : Ident) (dom? : Option Ty) (cod : Ty) (bod
       if extra.isEmpty then return (ty, .fix zero x.name x.span st)
       return (ty, .error (zero.toList ++ [st] ++ extra))
 
-def elabDecl (types : TypeEnv) (st : ModState) : DeclSyn → ModState
+def elabDecl (types : TypeEnvironment) (st : ModuleState) : DeclarationSyntax → ModuleState
   | .type .. => st   -- handled in the first pass
   | .missing s m => { st with decls := st.decls.push (.error ⟨s, m⟩) }
   | .eval s depth e =>
-    let ctx : Ctx := { types, globals := st.globals }
+    let ctx : Context := { types, globals := st.globals }
     let te := (infer e).run ctx
     let (n, te) := match depth with
       | none => (5, te)
@@ -321,28 +321,28 @@ def elabDecl (types : TypeEnv) (st : ModState) : DeclSyn → ModState
     let declared (n : String) := types.contains n
     let cod := elabType declared sig.cod
     let dom := sig.dom.map (elabType declared)
-    let ctx : Ctx := { types, globals := st.globals }
+    let ctx : Context := { types, globals := st.globals }
     let (ty, tb) := elabGlobalBody ctx name dom cod body
     let ty := if st.globals.contains name.name
       then errTy name.span s!"`{name.name}` is already defined" else ty
     let sigStr := match dom with
       | some d => s!"{d} → {cod}"
       | none => cod.render
-    let g : TGlobal := { name := name.name, span := name.span, ty, sig := sigStr, body := tb }
+    let g : TypedGlobal := { name := name.name, span := name.span, ty, sig := sigStr, body := tb }
     { globals := st.globals.insert name.name ty, decls := st.decls.push (.global g) }
 
-end Elab
+end Elaboration
 
-open Elab in
+open Elaboration in
 /-- Elaborate a parsed module. Never fails; errors live in the result. -/
-def elabModule (m : Module) : TModule := Id.run do
+def elabModule (m : ModuleSyntax) : TypedModule := Id.run do
   -- pass 1: type definitions, which may refer to each other in any order
   let typeDecls := m.filterMap fun | .type n b => some (n, b) | _ => none
   let names := typeDecls.map (·.1.name)
   let declared (n : String) := names.contains n
-  let mut env : TypeEnv := {}
+  let mut env : TypeEnvironment := {}
   let mut spans : Std.HashMap String Span := {}
-  let mut dupErrors : Std.HashMap Nat ErrInfo := {}
+  let mut dupErrors : Std.HashMap Nat SourceError := {}
   for h : i in [0:typeDecls.size] do
     let (n, b) := typeDecls[i]
     if env.contains n.name then
@@ -352,7 +352,7 @@ def elabModule (m : Module) : TModule := Id.run do
       spans := spans.insert n.name n.span
   env := checkGuarded env spans
   -- pass 2: everything else, in order
-  let mut st : ModState := {}
+  let mut st : ModuleState := {}
   let mut typeIdx := 0
   for d in m do
     match d with

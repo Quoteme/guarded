@@ -15,7 +15,7 @@ Named types may be (mutually) recursive provided every recursive occurrence
 is under `later`; such equations have a unique solution, unfolded stage by
 stage.
 
-Errors are part of the type language: `Ty.error` is the type of an
+Errors are part of the type language: `GuardedType.error` is the type of an
 ill-formed or ill-typed piece of syntax and carries the diagnostic. It is
 compatible with every type, so one mistake does not cascade.
 -/
@@ -23,36 +23,36 @@ compatible with every type, so one mistake does not cascade.
 namespace Guarded
 
 /-- A diagnostic stored inside the typed AST. -/
-structure ErrInfo where
+structure SourceError where
   span : Span
   msg  : String
   deriving Inhabited, BEq, Repr
 
-inductive Ty where
+inductive GuardedType where
   | one
   | zero
-  | later (body : Ty)
+  | later (body : GuardedType)
   | named (name : String)
-  | sum (alts : List (String × Ty))
-  | prod (fields : List (String × Ty))
-  | error (info : ErrInfo)
+  | sum (alts : List (String × GuardedType))
+  | prod (fields : List (String × GuardedType))
+  | error (info : SourceError)
   deriving Inhabited, Repr
 
-namespace Ty
+namespace GuardedType
 
-def isError : Ty → Bool
+def isError : GuardedType → Bool
   | .error _ => true
   | _ => false
 
 /-- All errors stored in a type. -/
-partial def errors : Ty → List ErrInfo
+partial def errors : GuardedType → List SourceError
   | .error e => [e]
   | .later t => t.errors
   | .sum xs | .prod xs => xs.flatMap (·.2.errors)
   | _ => []
 
 /-- Render with minimal parentheses. Precedence: `+` < `×` < `later`. -/
-partial def renderPrec : Nat → Ty → String
+partial def renderPrec : Nat → GuardedType → String
   | _, .one => "1"
   | _, .zero => "0"
   | _, .named n => n
@@ -62,30 +62,30 @@ partial def renderPrec : Nat → Ty → String
   | p, .prod xs => paren (p > 1) <| " × ".intercalate (xs.map field)
 where
   paren (b : Bool) (s : String) := if b then s!"({s})" else s
-  field (x : String × Ty) := s!"({x.1} := {x.2.renderPrec 0})"
+  field (x : String × GuardedType) := s!"({x.1} := {x.2.renderPrec 0})"
 
-def render : Ty → String := renderPrec 0
+def render : GuardedType → String := renderPrec 0
 
-instance : ToString Ty := ⟨render⟩
+instance : ToString GuardedType := ⟨render⟩
 
 /-- Names occurring outside of any `later`. A type definition is guarded
 iff it cannot reach itself along such occurrences. -/
-partial def unguardedNames : Ty → List String
+partial def unguardedNames : GuardedType → List String
   | .named n => [n]
   | .sum xs | .prod xs => xs.flatMap (·.2.unguardedNames)
   | _ => []
 
-end Ty
+end GuardedType
 
 /-- Definitions of named types. -/
-abbrev TypeEnv := Std.HashMap String Ty
+abbrev TypeEnvironment := Std.HashMap String GuardedType
 
-namespace TypeEnv
+namespace TypeEnvironment
 
 /-- Unfold top-level names. Unguarded cycles are rejected before any
 unfolding happens, so this terminates on checked environments; the fuel
 only protects against misuse. -/
-def whnf (env : TypeEnv) (t : Ty) (fuel : Nat := 1000) : Ty :=
+def whnf (env : TypeEnvironment) (t : GuardedType) (fuel : Nat := 1000) : GuardedType :=
   match fuel, t with
   | fuel + 1, .named n =>
     match env.get? n with
@@ -95,7 +95,7 @@ def whnf (env : TypeEnv) (t : Ty) (fuel : Nat := 1000) : Ty :=
 
 /-- Equality of types up to unfolding of names. Recursive types are compared
 coinductively: a pair of names already under comparison is assumed equal. -/
-partial def defEq (env : TypeEnv) (a b : Ty) (seen : List (String × String) := []) : Bool :=
+partial def defEq (env : TypeEnvironment) (a b : GuardedType) (seen : List (String × String) := []) : Bool :=
   match a, b with
   | .error _, _ | _, .error _ => true
   | .named x, .named y =>
@@ -111,7 +111,7 @@ partial def defEq (env : TypeEnv) (a b : Ty) (seen : List (String × String) := 
   | _, _ => false
 
 /-- `|X(n)|`, the number of approximations at stage `n`. -/
-partial def card (env : TypeEnv) (t : Ty) (n : Nat) : Nat :=
+partial def card (env : TypeEnvironment) (t : GuardedType) (n : Nat) : Nat :=
   match env.whnf t with
   | .one => 1
   | .zero => 0
@@ -120,6 +120,6 @@ partial def card (env : TypeEnv) (t : Ty) (n : Nat) : Nat :=
   | .prod xs => xs.foldl (fun acc x => acc * env.card x.2 n) 1
   | _ => 0
 
-end TypeEnv
+end TypeEnvironment
 
 end Guarded
