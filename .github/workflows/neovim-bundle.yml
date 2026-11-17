@@ -1,4 +1,4 @@
-name: Build guarded LSP
+name: Bundle Neovim plugin
 
 on:
   push:
@@ -37,21 +37,25 @@ jobs:
           name: ${{ matrix.asset }}
           path: ${{ matrix.asset }}
 
-  release:
+  bundle:
     needs: build
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
+
       - uses: actions/download-artifact@v4
         with:
           merge-multiple: true
+          path: editor-integration/neovim/bin
 
-      - name: Update the guarded-lsp release
-        uses: softprops/action-gh-release@v2
-        with:
-          # fixed tag: the Neovim plugin downloads from releases/download/guarded-lsp/
-          tag_name: guarded-lsp
-          name: guarded LSP
-          body: Built from ${{ github.sha }}.
-          prerelease: true
-          make_latest: false
-          files: guarded-*
+      # the `nvim` branch is the Neovim plugin with the binaries in bin/;
+      # force-pushed as a single commit so old binaries do not pile up
+      - name: Publish the nvim branch
+        working-directory: editor-integration/neovim
+        run: |
+          chmod +x bin/*
+          git init -q -b nvim
+          git add -A
+          git -c user.name=github-actions -c user.email=github-actions@users.noreply.github.com \
+            commit -qm "Neovim plugin built from ${{ github.sha }}"
+          git push -f "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}" nvim

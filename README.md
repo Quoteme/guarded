@@ -74,17 +74,10 @@ syntax highlighting, the language server, and insert-mode replacements
 
 ```lua
 -- ~/.config/nvim/lua/plugins/guarded.lua
-return {
-  "Quoteme/guarded",
-  lazy = false,
-  config = function(plugin)
-    vim.opt.rtp:prepend(plugin.dir .. "/editor-integration/neovim")
-    require("guarded").setup()
-  end,
-}
+return { "Quoteme/guarded", branch = "nvim" }
 ```
 
-The server binary is built by `.github/workflows/guarded-lsp.yml` and published
-to the `guarded-lsp` release (Linux x86_64, macOS arm64). On first start the
-plugin downloads it to `stdpath("data")/guarded/`. `:GuardedInstall`
-re-downloads it. A `guarded` executable on `$PATH` takes precedence.
+The `nvim` branch is built by `.github/workflows/neovim-bundle.yml`: it contains
+the plugin together with the server binaries (`bin/guarded-Linux-x86_64`,
+`bin/guarded-Darwin-arm64`), so nothing is downloaded at runtime. A `guarded`
+executable on `$PATH` takes precedence over the bundled one.

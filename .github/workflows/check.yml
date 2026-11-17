@@ -1,0 +1,18 @@
+name: Lean check
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # installs elan + the pinned toolchain, caches .lake, runs `lake build`;
+      # the job fails on any Lean error
+      - uses: leanprover/lean-action@v1
+        with:
+          build-args: "--wfail"
