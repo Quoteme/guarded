@@ -18,8 +18,7 @@ is `*`, so such definitions need a `| 1 ->` branch.
 
 namespace Guarded
 
-/-- An element of `X(n)` for some type `X` and stage `n`. Elements of
-`(later X)(n+1)` are elements of `X(n)`, so `later` needs no constructor. -/
+/-- An element of `X(n)` for some type `X` and stage `n`. -/
 inductive Value where
   | unit
   | inj (label : String) (arg : Value)

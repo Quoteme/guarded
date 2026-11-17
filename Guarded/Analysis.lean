@@ -39,9 +39,9 @@ def evalDiags (m : TypedModule) : TypedDeclaration → List Diagnostic
     | .ok r => [⟨s, .info, r.render⟩]
   | _ => []
 
-/-- Analyse a document. Never fails. -/
+/-- Analyse a document. -/
 def analyze (src : String) : Analysis :=
-  let m := elabModule (parseModule src)
+  let m := elaborateModule (parseModule src)
   let errs := m.errors.toArray.map fun e => (⟨e.span, .error, e.msg⟩ : Diagnostic)
   { module := m, diags := errs ++ (m.decls.toList.flatMap (evalDiags m)).toArray }
 

@@ -334,8 +334,10 @@ def elabDecl (types : TypeEnvironment) (st : ModuleState) : DeclarationSyntax â†
 end Elaboration
 
 open Elaboration in
-/-- Elaborate a parsed module. Never fails; errors live in the result. -/
-def elabModule (m : ModuleSyntax) : TypedModule := Id.run do
+/-- Elaborate a parsed module.
+  Given a type environment, it checks that all definitions are well-typed.
+-/
+def elaborateModule (m : ModuleSyntax) : TypedModule := Id.run do
   -- pass 1: type definitions, which may refer to each other in any order
   let typeDecls := m.filterMap fun | .type n b => some (n, b) | _ => none
   let names := typeDecls.map (Â·.1.name)

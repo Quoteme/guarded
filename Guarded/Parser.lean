@@ -354,7 +354,7 @@ def chunks (toks : Array Token) : Array (Array Token) := Id.run do
 end Parser
 
 open Parser in
-/-- Parse a whole `.grd` file. Never fails. -/
+/-- Parse a whole `.grd` file. -/
 def parseModule (src : String) : ModuleSyntax :=
   (chunks (tokenize src)).flatMap fun toks =>
     let last := toks.back!.span

@@ -13,6 +13,26 @@ Stream := (val := Char) × (tail := later Stream)
 
 p : Pair := (fst := b', snd := true)
 
+-- A global element defined by `match` on a sum: one alternative per
+-- constructor, the optional binder names the payload.
+succ : Char :=
+  match p.fst {
+    | a' -> b'
+    | b' -> c'
+    | c' x -> a' x
+  }
+
+#eval succ
+
+true_false : ▷ Bool -> Bool :=
+  | 1 -> true
+  | x -> match x {
+    | true -> false
+    | false -> true
+  }
+
+#eval true_false
+
 -- A guarded fixed point y : later Stream -> Stream.
 -- `| 1 -> …` gives stage 0 (where later Stream is 1),
 -- `| y -> …` gives stage n+1 from stage n.
@@ -27,6 +47,11 @@ abab : later Stream -> Stream :=
   | y -> (val := a', tail := next (val := b', tail := y))
 
 #eval 4 abab
+
+abcabc : later Stream -> Stream :=
+  | y -> (val := a', tail := next (val := b', tail := next (val := c', tail := y)))
+
+#eval abcabc
 
 -- Projections look through `later`: abab.tail : later Stream.
 #eval 3 abab.tail
