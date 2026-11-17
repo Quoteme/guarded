@@ -24,7 +24,7 @@ type    ::= prod ('+' prod)*
 prod    ::= tfactor (('×' | '*') tfactor)*
 tfactor ::= '1' | '0' | IDENT | 'later' tfactor | '▷' tfactor
           | '(' IDENT ':=' type ')' | '(' type ')'
-expr    ::= 'next' postfix | 'match' expr '{' alt ('|' alt)* '}'
+expr    ::= 'match' expr '{' alt ('|' alt)* '}'
           | IDENT postfix | postfix          -- constructor application
 alt     ::= IDENT IDENT? '->' expr
 postfix ::= atom ('.' IDENT)*
@@ -54,8 +54,10 @@ def peekN (k : Nat) : ParserM Token := do
   let s ← get
   return s.toks[s.idx + k]?.getD ⟨.eof, s.eofSpan⟩
 
+/-- Peek at the next token. -/
 def peek : ParserM Token := peekN 0
 
+/-- Peek at the kind of the next token. -/
 def peekKind : ParserM TokenKind := return (← peek).kind
 
 def advance : ParserM Token := do
@@ -77,6 +79,7 @@ def eat? (p : TokenKind → Bool) : ParserM (Option Token) := do
 
 def eatKind (k : TokenKind) : ParserM (Option Token) := eat? (· == k)
 
+/-- Check if a token is an identifier. -/
 def isIdentKind : TokenKind → Bool
   | .ident _ => true
   | _        => false
@@ -108,6 +111,7 @@ def recover (what : String) : ParserM (Span × String) := do
 
 mutual
 
+/-- Parse a type. -/
 partial def parseType : ParserM TypeSyn := do
   let first ← parseProd
   if (← peekKind) != .plus then return first
@@ -173,10 +177,6 @@ mutual
 partial def parseExpr : ParserM ExprSyn := do
   let t ← peek
   match t.kind with
-  | .kwNext =>
-    let _ ← advance
-    let body ← parsePostfix
-    return .next (t.span.merge body.span) body
   | .kwMatch =>
     let _ ← advance
     let scrut ← parseExpr

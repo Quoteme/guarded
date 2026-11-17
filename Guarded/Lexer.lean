@@ -17,7 +17,6 @@ inductive TokenKind where
   | number (n : Nat)
   /-- `later` or `▷` -/
   | kwLater
-  | kwNext
   | kwMatch
   /-- `#eval` -/
   | cmdEval
@@ -48,7 +47,6 @@ def describe : TokenKind → String
   | .ident n      => s!"identifier `{n}`"
   | .number n     => s!"number `{n}`"
   | .kwLater      => "`later`"
-  | .kwNext       => "`next`"
   | .kwMatch      => "`match`"
   | .cmdEval      => "`#eval`"
   | .cmdUnknown n => s!"`#{n}`"
@@ -90,7 +88,6 @@ def isIdentChar (c : Char) : Bool :=
 
 private def keyword? : String → Option TokenKind
   | "later" => some .kwLater
-  | "next"  => some .kwNext
   | "match" => some .kwMatch
   | _       => none
 
@@ -102,12 +99,20 @@ private structure Cursor where
   chars : Array Char
   idx   : Nat := 0
   pos   : Pos := ⟨0, 0⟩
+  deriving Inhabited, Repr, BEq
 
+/-- The lexer monad, a state monad over the cursor.
+Basically, by wrapping functions into the `LexM` monad, we tag
+along the current lexer head position `pos` in the input `chars`,
+so that we can produce `Token`s with their source `Span`s as an output,
+which again tags along the source position for the parser. -/
 private abbrev LexM := StateM Cursor
 
+/-- Peek at the character `k` positions ahead of the current cursor. Returns `none` at end of input. -/
 private def peekAt (k : Nat) : LexM (Option Char) :=
   return (← get).chars[(← get).idx + k]?
 
+/-- Move the cursor forward by one character, updating the line and column. -/
 private def bump : LexM Unit := modify fun c =>
   match c.chars[c.idx]? with
   | some '\n' => { c with idx := c.idx + 1, pos := ⟨c.pos.line + 1, 0⟩ }
@@ -120,23 +125,27 @@ private partial def takeWhile (p : Char → Bool) (acc : String := "") : LexM St
   | some c => if p c then bump; takeWhile p (acc.push c) else return acc
   | none   => return acc
 
+/-- Skip whitespace and comments. -/
 private partial def skipTrivia : LexM Unit := do
   match ← peekAt 0, ← peekAt 1 with
+  -- skip comments
   | some '-', some '-' | some '/', some '/' =>
     let _ ← takeWhile (· != '\n'); skipTrivia
+  -- skip whitespace
   | some c, _ =>
     if c.isWhitespace then bump; skipTrivia
+  -- end of input
   | none, _ => pure ()
 
 /-- Read one token; `none` at end of input. -/
 private def nextToken : LexM (Option Token) := do
   skipTrivia
   let start := (← get).pos
-  let some c ← peekAt 0 | return none
-  let c1 ← peekAt 1
+  let some currChar ← peekAt 0 | return none
+  let nextChar ← peekAt 1
   let single (k : TokenKind) : LexM TokenKind := do bump; return k
   let double (k : TokenKind) : LexM TokenKind := do bump; bump; return k
-  let kind ← match c, c1 with
+  let kind ← match currChar, nextChar with
     | ':', some '=' => double .assign
     | '-', some '>' => double .arrow
     | ':', _ => single .colon
@@ -157,21 +166,25 @@ private def nextToken : LexM (Option Token) := do
         let name ← takeWhile isIdentChar
         pure (if name == "eval" then .cmdEval else .cmdUnknown name)
     | _, _ =>
-      if c.isDigit then do
+      -- numbers
+      if currChar.isDigit then do
         let digits ← takeWhile Char.isDigit
         pure (.number digits.toNat!)
-      else if isIdentStart c then do
+      -- identifiers
+      else if isIdentStart currChar then do
         let name ← takeWhile isIdentChar
         pure ((keyword? name).getD (.ident name))
-      else single (.unknown c)
+      -- unknown characters
+      else single (.unknown currChar)
   return some ⟨kind, ⟨start, (← get).pos⟩⟩
 
+/-- Read all tokens until end of input. -/
 private partial def lexAll (acc : Array Token) : LexM (Array Token) := do
   match ← nextToken with
   | some t => lexAll (acc.push t)
   | none   => return acc
 
-/-- Split source text into tokens. Never fails. -/
+/-- Split source text into tokens. -/
 def tokenize (src : String) : Array Token :=
   (lexAll #[]).run' { chars := src.toList.toArray }
 

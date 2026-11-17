@@ -22,6 +22,8 @@ def min (a b : Pos) : Pos := if a.le b then a else b
 def max (a b : Pos) : Pos := if a.le b then b else a
 
 instance : ToString Pos := ⟨fun p => s!"{p.line + 1}:{p.col + 1}"⟩
+instance : Ord Pos where
+  compare a b := if a.le b then if b.le a then .eq else .lt else .gt
 
 end Pos
 

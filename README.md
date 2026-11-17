@@ -29,8 +29,8 @@ Stream := (val := Bool) × (tail := later Stream) -- later (or ▷) delays by on
 
 p : Pair := (fst := true, snd := false)          -- global element 1 → Pair
 
-ts : later Stream -> Stream :=                   -- guarded fixed point
-  | 1 -> (val := true, tail := *)                -- stage 0: later Stream is 1
+ts : later Stream -> Stream :=                   -- defined by iteration
+  | 1 -> (val := true, tail := *)                -- seed (stage 0)
   | y -> (val := true, tail := y)                -- stage n+1 from stage n
 
 #eval 5 ts                                       -- shows stages 5, 4, …, 0
@@ -42,13 +42,13 @@ ts : later Stream -> Stream :=                   -- guarded fixed point
 - Components of sums and products are always labelled. Labels are
   constructors (`true`, `left (…)`) and fields (`(fst := …, snd := …)`, `e.fst`).
   `'` is an ordinary identifier character, so `a'` is a valid label.
-- Expressions: constructors `l` / `l e`, records, `*` (also `()`), `next e`
-  (`next : X → later X`), projections `e.l` (they look through `later`), and
-  `match e { l x -> … | m -> … }` on sums.
-- `y : later Y -> Y := | 1 -> e₀ | y -> e` is the unique fixed point: stage 0
-  is `e₀`, stage `n+1` is `e` with `y` bound to stage `n`. Without a `| 1`
-  branch, stage 0 is `e` with `y := *`. `#eval` warns if the two branches do not
-  fit together (the family is then not natural).
+- Expressions: constructors `l` / `l e`, records, `*` (also `()`), projections
+  `e.l` (they look through `later`), and `match e { l x -> … | m -> … }` on sums.
+- `y : later Y -> Y := | 1 -> e₀ | y -> e` is defined by iteration: stage 0 is
+  the seed `e₀`, stage `n+1` is `e` with `y` bound to stage `n`. The outermost
+  `val` is the newest element; each stage restricts to the previous one by
+  dropping it. The step may `match` on the previous stage (e.g. `y.val`).
+  Without a `| 1` branch, stage 0 is `e` with `y := *`.
 
 Hover shows the type of the expression under the cursor and, on definitions,
 the sizes `|X(0)|, |X(1)|, …`.
@@ -63,7 +63,7 @@ the sizes `|X(0)|, |X(1)|, …`.
 | `Guarded/Types.lean`    | types, with `Ty.error` carrying diagnostics                           |
 | `Guarded/Typed.lean`    | typed AST; every node stores its type                                 |
 | `Guarded/Elab.lean`     | bidirectional type checking                                           |
-| `Guarded/Eval.lean`     | stagewise evaluation, restriction maps, naturality check              |
+| `Guarded/Eval.lean`     | stagewise evaluation by iteration                                     |
 | `Guarded/Analysis.lean` | pipeline, diagnostics, hover                                          |
 | `Guarded/Server.lean`   | lapis glue                                                            |
 

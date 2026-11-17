@@ -2,7 +2,7 @@ if vim.b.current_syntax then return end
 vim.cmd([[
   syn match guardedDef "^[[:alpha:]_][[:alnum:]_']*"
   syn match guardedType "\<\u[[:alnum:]_']*"
-  syn keyword guardedKeyword later next match
+  syn keyword guardedKeyword later match
   syn match guardedCommand "^#\w\+"
   syn match guardedNumber "\<[01]\>"
   syn match guardedOperator ":=\|->\|[→×▷+*|]"

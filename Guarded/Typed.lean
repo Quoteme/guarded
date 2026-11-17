@@ -17,7 +17,6 @@ inductive TExpr where
   | unit (span : Span) (ty : Ty)
   | inj (span : Span) (label : String) (arg : TExpr) (ty : Ty)
   | record (span : Span) (fields : List (String × TExpr)) (ty : Ty)
-  | next (span : Span) (body : TExpr) (ty : Ty)
   | proj (span : Span) (body : TExpr) (label : String) (ty : Ty)
   /-- alternatives: label, binder `(name, span, type)`, body -/
   | «match» (span : Span) (scrutinee : TExpr)
@@ -31,14 +30,14 @@ namespace TExpr
 
 def ty : TExpr → Ty
   | .local _ _ t | .global _ _ t | .unit _ t | .inj _ _ _ t | .record _ _ t
-  | .next _ _ t | .proj _ _ _ t | .match _ _ _ t | .error _ _ t => t
+  | .proj _ _ _ t | .match _ _ _ t | .error _ _ t => t
 
 def span : TExpr → Span
   | .local s _ _ | .global s _ _ | .unit s _ | .inj s _ _ _ | .record s _ _
-  | .next s _ _ | .proj s _ _ _ | .match s _ _ _ | .error s _ _ => s
+  | .proj s _ _ _ | .match s _ _ _ | .error s _ _ => s
 
 def children : TExpr → List TExpr
-  | .inj _ _ a _ | .next _ a _ | .proj _ a _ _ => [a]
+  | .inj _ _ a _ | .proj _ a _ _ => [a]
   | .record _ fs _ => fs.map (·.2)
   | .match _ s alts _ => s :: alts.map (·.2.2)
   | .error _ cs _ => cs
@@ -70,9 +69,9 @@ instance : HasSpan TExpr := ⟨TExpr.span⟩
 inductive TBody where
   /-- `x : Y := e` -/
   | expr (e : TExpr)
-  /-- `y : later Y -> Y := | 1 -> zero | prev -> step`, the unique fixed
-  point: stage 0 is `zero` (or `step` with `prev := *` if absent), stage
-  `n+1` is `step` with `prev` bound to stage `n`. -/
+  /-- `y : later Y -> Y := | 1 -> seed | prev -> step`, defined by iteration:
+  stage 0 is `seed` (or `step` with `prev := *` if absent), stage `n+1` is
+  `step` with `prev` bound to stage `n`. -/
   | fix (zero : Option TExpr) (prev : String) (prevSpan : Span) (step : TExpr)
   /-- ill-formed body; the error is the global's type or inside `parts` -/
   | error (parts : List TExpr)

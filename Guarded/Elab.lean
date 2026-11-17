@@ -1,19 +1,6 @@
 import Guarded.Syntax
 import Guarded.Typed
 
-/-!
-# Elaboration
-
-Turns the surface syntax into the typed AST. Type checking is
-bidirectional: `check` pushes an expected type inward (which is how
-constructors such as `a'` or `left` are resolved), and `infer` synthesizes
-one.
-
-Elaboration is total. Problems become `Ty.error` nodes in the typed AST;
-the error type is compatible with every type, so each mistake is reported
-once.
--/
-
 namespace Guarded
 
 namespace Elab
@@ -109,12 +96,18 @@ partial def projTy (t : Ty) (l : String) : ElabM (Option Ty) := do
   | .error e => return some (.error e)
   | _ => return none
 
-def mismatchMsg (expected actual : Ty) : ElabM String := do
-  let base := s!"type mismatch: expected `{expected}`, got `{actual}`"
-  if let .later a ← whnf expected then
-    if ← defEq a actual then
-      return base ++ s!". Use `next` to delay it: `next e : later {actual}`"
-  return base
+def mismatchMsg (expected actual : Ty) : ElabM String :=
+  return s!"type mismatch: expected `{expected}`, got `{actual}`"
+
+/-- Strip leading `later`s: `later^k t ↦ (k, t)`. -/
+partial def peelLater (t : Ty) (k : Nat := 0) : ElabM (Nat × Ty) := do
+  match ← whnf t with
+  | .later a => peelLater a (k + 1)
+  | t => return (k, t)
+
+def laterN : Nat → Ty → Ty
+  | 0, t => t
+  | k + 1, t => .later (laterN k t)
 
 def stageZeroHint (expected : Ty) : String :=
   s!"`*` has type `1`, but `{expected}` is expected. `later A` is the terminal \
@@ -142,9 +135,6 @@ partial def infer : ExprSyn → ElabM TExpr
       else out := out ++ [(l.name, te)]
     let r := TExpr.record s out (.prod (out.map fun (l, e) => (l, e.ty)))
     return if bad.isEmpty then r else errExpr s "record has duplicate fields" (r :: bad)
-  | .next s b => do
-    let b ← withReader ({ · with stageZero := false }) (infer b)
-    return .next s b (.later b.ty)
   | .proj s b l => do
     let b ← infer b
     match ← projTy b.ty l.name with
@@ -197,8 +187,6 @@ partial def check (e : ExprSyn) (expected : Ty) : ElabM TExpr := do
       return errExpr l.span s!"`{expected}` has no constructor `{l.name}`; its constructors are {names}"
         [← infer arg]
   | .record s fields, .prod fs => checkRecord s fields fs expected
-  | .next s b, .later a =>
-    return .next s (← withReader ({ · with stageZero := false }) (check b a)) expected
   | .match s scrut alts, _ => elabMatch s scrut alts (some expected)
   | _, _ => inferAndCompare e expected
 
@@ -228,15 +216,16 @@ partial def checkRecord (s : Span) (fields : Array (Ident × ExprSyn))
 partial def elabMatch (s : Span) (scrut : ExprSyn) (alts : Array (Ident × Option Ident × ExprSyn))
     (expected : Option Ty) : ElabM TExpr := do
   let scrut ← infer scrut
-  let cases ← match ← whnf scrut.ty with
-    | .sum cs => pure (some cs)
-    | _ => pure none
+  let (depth, inner) ← peelLater scrut.ty
+  let cases := match inner with
+    | .sum cs => some cs
+    | _ => none
   let mut resTy := expected
   let mut out := []
   let mut bad := []
   for (l, binder, body) in alts do
     let payload := cases.bind (·.lookup l.name)
-    let bTy := payload.getD (errTy l.span s!"no constructor `{l.name}` here")
+    let bTy := laterN depth (payload.getD (errTy l.span s!"no constructor `{l.name}` here"))
     let bind := binder.map fun b => (b.name, b.span, bTy)
     let bound := binder.toList.map (·.name, bTy)
     let body ← withReader (fun c => { c with locals := bound ++ c.locals }) do
@@ -254,10 +243,7 @@ partial def elabMatch (s : Span) (scrut : ExprSyn) (alts : Array (Ident × Optio
   match cases with
   | none =>
     if scrut.ty.isError then return r
-    let hint := match ← whnf scrut.ty with
-      | .later _ => ": a value of type `later A` is not available yet, so it cannot be inspected now"
-      | _ => ""
-    return errExpr scrut.span s!"cannot match on `{scrut.ty}`, which is not a sum type{hint}" [r]
+    return errExpr scrut.span s!"cannot match on `{scrut.ty}`, which is not a sum type" [r]
   | some cs =>
     let missing := cs.filter fun c => !out.any (·.1 == c.1)
     if !missing.isEmpty then

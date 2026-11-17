@@ -16,7 +16,7 @@ inductive Severity where
   | error | warning | info
   deriving Inhabited, BEq, Repr
 
-structure Diag where
+structure Diagnostic where
   span : Span
   severity : Severity
   msg : String
@@ -24,32 +24,25 @@ structure Diag where
 
 structure Analysis where
   module : TModule
-  diags : Array Diag
+  diags : Array Diagnostic
   deriving Inhabited
 
 /-- `| 5 -> …` lines, latest stage first. -/
 def EvalReport.render (r : EvalReport) : String :=
   "\n".intercalate (r.stages.map fun (k, v) => s!"| {k} -> {v}")
 
-def evalDiags (m : TModule) : TDecl → List Diag
+def evalDiags (m : TModule) : TDecl → List Diagnostic
   | .eval s depth e =>
     if !e.errors.isEmpty then [] else
     match evalStages m e depth with
     | .error msg => [⟨s, .warning, s!"cannot evaluate: {msg}"⟩]
-    | .ok r =>
-      let out : Diag := ⟨s, .info, r.render⟩
-      let warn := (r.unnatural.take 1).map fun (k, restricted) =>
-        let actual := (r.stages.lookup k).map toString |>.getD "?"
-        ⟨s, .warning, s!"not a global element: restricting stage {k + 1} along r_{k} gives \
-          `{restricted}`, but stage {k} is `{actual}`. The `| 1 -> …` branch must agree \
-          with the step branch at stage 0."⟩
-      out :: warn
+    | .ok r => [⟨s, .info, r.render⟩]
   | _ => []
 
 /-- Analyse a document. Never fails. -/
 def analyze (src : String) : Analysis :=
   let m := elabModule (parseModule src)
-  let errs := m.errors.toArray.map fun e => (⟨e.span, .error, e.msg⟩ : Diag)
+  let errs := m.errors.toArray.map fun e => (⟨e.span, .error, e.msg⟩ : Diagnostic)
   { module := m, diags := errs ++ (m.decls.toList.flatMap (evalDiags m)).toArray }
 
 /-! ## Hover -/

@@ -47,8 +47,6 @@ inductive ExprSyn where
   | unit (span : Span)
   /-- `(l₁ := e₁, …, lₙ := eₙ)` -/
   | record (span : Span) (fields : Array (Ident × ExprSyn))
-  /-- `next e : later A` for `e : A` -/
-  | next (span : Span) (body : ExprSyn)
   /-- `e.label` -/
   | proj (span : Span) (body : ExprSyn) (label : Ident)
   /-- `match e { l₁ x -> e₁ | l₂ -> e₂ }` -/
@@ -58,7 +56,7 @@ inductive ExprSyn where
 
 def ExprSyn.span : ExprSyn → Span
   | .ident id => id.span
-  | .ctor s _ _ | .unit s | .record s _ | .next s _ | .proj s _ _ | .match s _ _
+  | .ctor s _ _ | .unit s | .record s _ | .proj s _ _ | .match s _ _
   | .missing s _ => s
 
 instance : HasSpan ExprSyn := ⟨ExprSyn.span⟩

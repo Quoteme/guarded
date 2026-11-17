@@ -3,18 +3,17 @@ import Guarded.Typed
 /-!
 # Stagewise evaluation
 
-A closed term `e : X` denotes a global element `1 → X`, i.e. a compatible
-family of approximations `eₙ ∈ X(n)`. `evalAt n e` computes `eₙ`.
+A closed term `e : X` denotes a family of approximations `eₙ ∈ X(n)`;
+`#eval` computes `eₙ` stage by stage.
 
-* `next e` at stage 0 is `*` (since `(later X)(0) = 1`); at stage `n+1` it is
-  `e` at stage `n`, with all free variables restricted along `r_n`.
-* A guarded fixed point `y : later Y -> Y` is computed by iteration:
-  `y₀` from the `| 1 ->` branch and `yₙ₊₁` from the step branch with the
-  bound variable set to `yₙ ∈ Y(n) = (later Y)(n+1)`.
+A definition `y : later Y -> Y` is computed by iteration: `y₀` is the seed
+given by the `| 1 ->` branch, and `yₙ₊₁` is the step branch with the bound
+variable set to `yₙ ∈ Y(n) = (later Y)(n+1)`. Each stage adds the newest
+element on the outside, and `yₙ₊₁` restricts to `yₙ` by dropping it again.
 
-`#eval` also checks naturality, `r_n(yₙ₊₁) = yₙ`. It can only fail when the
-`| 1 ->` branch disagrees with the step branch, in which case the
-definition is not a morphism of the topos of trees.
+Since the bound variable is a previous approximation, which is fully
+computed, the step branch may `match` on it (e.g. on `y.val`). At stage 0 it
+is `*`, so such definitions need a `| 1 ->` branch.
 -/
 
 namespace Guarded
@@ -49,20 +48,6 @@ partial def render : Val → String
 instance : ToString Val := ⟨render⟩
 
 end Val
-
-/-- The restriction `r_n : X(n+1) → X(n)`. -/
-partial def restrict (env : TypeEnv) (t : Ty) (n : Nat) (v : Val) : Except String Val :=
-  match env.whnf t, v with
-  | .one, _ => pure .unit
-  | .later a, _ => if n == 0 then pure .unit else restrict env a (n - 1) v
-  | .sum alts, .inj l a => do
-    let some p := alts.lookup l | throw s!"no constructor `{l}`"
-    return .inj l (← restrict env p n a)
-  | .prod fs, .record xs => .record <$> xs.mapM fun (l, a) => do
-    let some p := fs.lookup l | throw s!"no field `{l}`"
-    return (l, ← restrict env p n a)
-  | .zero, _ => throw "the empty type has no elements"
-  | t, _ => throw s!"cannot restrict a value of type `{t}`"
 
 namespace Eval
 
@@ -102,21 +87,15 @@ partial def eval : TExpr → EvalM Val
   | .global _ g _ => do globalAt g (← read).stage
   | .inj _ l a _ => .inj l <$> eval a
   | .record _ fs _ => .record <$> fs.mapM fun (l, e) => return (l, ← eval e)
-  | .next _ b _ => do
-    let ctx ← read
-    match ctx.stage with
-    | 0 => pure .unit
-    | n + 1 =>
-      let locals ← ctx.locals.mapM fun (x, t, v) => do
-        return (x, t, ← liftE (restrict ctx.types t n v))
-      withReader (fun c => { c with stage := n, locals }) (eval b)
   | .proj _ b l _ => do
     let v ← eval b
     let ctx ← read
     liftE (projVal ctx.types b.ty ctx.stage v l)
   | .match _ s alts _ => do
     let v ← eval s
-    let .inj l payload := v | throw "match on a non-constructor value"
+    let .inj l payload := v | throw s!"at stage {(← read).stage} the matched value is `*` \
+      (`later A` is `1` at stage 0), so there is nothing to match on; \
+      give the earlier stages with a `| 1 -> …` branch"
     let some (_, bind, body) := alts.find? (·.1 == l) | throw s!"no alternative for `{l}`"
     let bound := bind.toList.map fun (x, _, t) => (x, t, payload)
     withReader (fun c => { c with locals := bound ++ c.locals }) (eval body)
@@ -149,8 +128,6 @@ end Eval
 structure EvalReport where
   /-- `(k, eₖ)` for `k = n, n-1, …, 0` -/
   stages : List (Nat × Val)
-  /-- stages `k` where `r_k(eₖ₊₁) ≠ eₖ`, with the restricted value -/
-  unnatural : List (Nat × Val)
 
 open Eval in
 /-- Evaluate a closed term at stages `0 … depth`. -/
@@ -159,10 +136,6 @@ def evalStages (m : TModule) (e : TExpr) (depth : Nat) : Except String EvalRepor
   let run (k : Nat) : StateT Cache (Except String) Val :=
     (eval e).run { types := m.types, globals, stage := k }
   let (vals, _) ← (List.range (depth + 1)).mapM run |>.run {}
-  let mut unnatural := []
-  for (k, (v, v')) in (List.range depth).zip (vals.zip (vals.drop 1)) do
-    let r ← restrict m.types e.ty k v'
-    if !(r == v) then unnatural := unnatural ++ [(k, r)]
-  return { stages := (List.range (depth + 1)).zip vals |>.reverse, unnatural }
+  return { stages := (List.range (depth + 1)).zip vals |>.reverse }
 
 end Guarded
