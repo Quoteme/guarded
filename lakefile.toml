@@ -4,8 +4,8 @@ defaultTargets = ["guarded"]
 
 [[require]]
 name = "lapis"
-git = "https://github.com/SrGaabriel/lapis"
-rev = "2de2282ec7f5ecae75a3c338c02a930771e691df"
+git = "https://github.com/Quoteme/lapis/"
+rev = "f4d0900da5bbe036bfda68e4588e6dc835429c5d"
 
 [[lean_lib]]
 name = "Guarded"
