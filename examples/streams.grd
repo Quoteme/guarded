@@ -1,0 +1,47 @@
+-- Types are objects of the topos of trees: a set X(n) per stage n.
+-- 1 = 1 <- 1 <- 1 <- …   and   0 = 0 = 0 = …   are built in.
+
+Bool := (true := 1) + (false := 1)
+
+Char := (a' := 1) + (b' := 1) + (c' := 1)
+
+Pair := (fst := Char) × (snd := Bool)
+
+-- Streams: (later Stream)(0) = 1 and (later Stream)(n+1) = Stream(n),
+-- so Stream(n) ≅ Char^(n+1).
+Stream := (val := Char) × (tail := later Stream)
+
+p : Pair := (fst := b', snd := true)
+
+-- A guarded fixed point y : later Stream -> Stream.
+-- `| 1 -> …` gives stage 0 (where later Stream is 1),
+-- `| y -> …` gives stage n+1 from stage n.
+as : later Stream -> Stream :=
+  | 1 -> (val := a', tail := *)
+  | y -> (val := a', tail := y)
+
+#eval 5 as
+
+-- Without a `| 1` branch, stage 0 uses `y := *`.
+abab : later Stream -> Stream :=
+  | y -> (val := a', tail := next (val := b', tail := y))
+
+#eval 4 abab
+
+-- Projections look through `later`: abab.tail : later Stream.
+#eval 3 abab.tail
+
+-- The `| 1` branch must agree with the step branch, otherwise the family
+-- of approximations is not natural and #eval warns.
+bad : later Stream -> Stream :=
+  | 1 -> (val := c', tail := *)
+  | y -> (val := a', tail := y)
+
+#eval 2 bad
+
+-- Errors are reported, and the rest of the file still works:
+Broken := (x := 1) + 1
+
+Loop := (val := Char) × (tail := Loop)
+
+oops : Stream := (val := d', tail := *)

@@ -1,0 +1,15 @@
+name = "guarded"
+version = "0.1.0"
+defaultTargets = ["guarded"]
+
+[[require]]
+name = "lapis"
+git = "https://github.com/SrGaabriel/lapis"
+rev = "2de2282ec7f5ecae75a3c338c02a930771e691df"
+
+[[lean_lib]]
+name = "Guarded"
+
+[[lean_exe]]
+name = "guarded"
+root = "Main"
