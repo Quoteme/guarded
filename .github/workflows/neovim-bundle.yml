@@ -30,7 +30,8 @@ jobs:
           path: .lake
           key: lake-${{ matrix.os }}-${{ hashFiles('lean-toolchain', 'lake-manifest.json') }}
 
-      - run: lake build && cp .lake/build/bin/guarded ${{ matrix.asset }}
+      # strip debug symbols: 103 MB -> 72 MB, below GitHub's 100 MB file limit
+      - run: lake build && strip -o ${{ matrix.asset }} .lake/build/bin/guarded
 
       - uses: actions/upload-artifact@v4
         with:
